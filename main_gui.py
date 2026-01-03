@@ -1,11 +1,11 @@
 import tkinter as tk
+from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import numpy as np
 import time
 
 from greenhouse_backend import GreenhouseEnvironment
-
 
 class FuzzyGreenhouseGUI:
     def __init__(self, root):
@@ -16,6 +16,8 @@ class FuzzyGreenhouseGUI:
         self.is_running = False
         self.time_step = 0
         
+        # --- GUI LAYOUT ---
+        # 1. Control Panel
         control_frame = tk.Frame(root)
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10)
         
@@ -27,6 +29,20 @@ class FuzzyGreenhouseGUI:
         self.scale_heat.set(1.5)
         self.scale_heat.pack(side=tk.LEFT)
 
+        # Plant Type Dropdown
+        tk.Label(control_frame, text="Plant:").pack(side=tk.LEFT, padx=5)
+        self.plant_var = tk.StringVar(value="General")
+        self.combo_plant = ttk.Combobox(control_frame, textvariable=self.plant_var, values=["General", "Tomato", "Lettuce", "Orchid"], state="readonly", width=10)
+        self.combo_plant.pack(side=tk.LEFT, padx=5)
+        self.combo_plant.bind("<<ComboboxSelected>>", self.update_plant_type)
+
+        # Growth Stage Dropdown
+        tk.Label(control_frame, text="Stage:").pack(side=tk.LEFT, padx=5)
+        self.stage_var = tk.StringVar(value="Vegetative")
+        self.combo_stage = ttk.Combobox(control_frame, textvariable=self.stage_var, values=["Seedling", "Vegetative", "Flowering"], state="readonly", width=10)
+        self.combo_stage.pack(side=tk.LEFT, padx=5)
+
+        # 2. Stats Display
         stats_frame = tk.Frame(root)
         stats_frame.pack(side=tk.TOP, fill=tk.X, padx=10)
         
@@ -39,6 +55,7 @@ class FuzzyGreenhouseGUI:
         self.lbl_reward = tk.Label(stats_frame, text="RL Reward: 0", font=("Arial", 12), fg="blue")
         self.lbl_reward.pack(side=tk.LEFT, padx=20)
 
+        # 3. Live Plotting Area
         self.fig = Figure(figsize=(6, 4), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_ylim(15, 35)
@@ -55,6 +72,12 @@ class FuzzyGreenhouseGUI:
         self.y_temp = []
         self.y_target = []
 
+    def update_plant_type(self, event=None):
+        species = self.plant_var.get()
+        print(f"Changing plant type to: {species}")
+        self.env.set_plant_type(species)
+        # Update target line in plot if needed, or just let it update in loop
+
     def toggle_sim(self):
         if self.is_running:
             self.is_running = False
@@ -69,8 +92,9 @@ class FuzzyGreenhouseGUI:
             return
 
         external_heat = self.scale_heat.get()
+        current_stage = self.stage_var.get()
 
-        curr_temp, fan_power, reward = self.env.step(external_heat)
+        curr_temp, fan_power, reward = self.env.step(external_heat, stage_name=current_stage)
         self.time_step += 1
 
         self.lbl_temp.config(text=f"Temp: {curr_temp:.1f}°C")
