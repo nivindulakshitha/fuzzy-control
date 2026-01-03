@@ -32,11 +32,12 @@ class GreenhouseEnvironment:
 
         # --- 2. MEMBERSHIP FUNCTIONS ---
         # Temperature (5 sets): Very Cold, Cold, Optimal, Warm, Hot
-        self.temp_in['Very Cold'] = fuzz.trimf(self.temp_in.universe, [0, 0, 10])
-        self.temp_in['Cold'] = fuzz.trimf(self.temp_in.universe, [5, 15, optimal_temp_center - 2])
-        self.temp_in['Optimal'] = fuzz.trimf(self.temp_in.universe, [optimal_temp_center - 5, optimal_temp_center, optimal_temp_center + 5])
-        self.temp_in['Warm'] = fuzz.trimf(self.temp_in.universe, [optimal_temp_center + 2, optimal_temp_center + 12, 50])
-        self.temp_in['Hot'] = fuzz.trimf(self.temp_in.universe, [40, 50, 50])
+        # All relative to optimal_temp_center to adapt to different plants
+        self.temp_in['Very Cold'] = fuzz.trimf(self.temp_in.universe, [0, 0, optimal_temp_center - 10])
+        self.temp_in['Cold'] = fuzz.trimf(self.temp_in.universe, [optimal_temp_center - 15, optimal_temp_center - 5, optimal_temp_center])
+        self.temp_in['Optimal'] = fuzz.trimf(self.temp_in.universe, [optimal_temp_center - 3, optimal_temp_center, optimal_temp_center + 3])
+        self.temp_in['Warm'] = fuzz.trimf(self.temp_in.universe, [optimal_temp_center, optimal_temp_center + 5, optimal_temp_center + 10])
+        self.temp_in['Hot'] = fuzz.trimf(self.temp_in.universe, [optimal_temp_center + 5, optimal_temp_center + 15, 50])
 
         # Humidity (5 sets): Very Dry, Dry, Optimal, Humid, Saturated
         self.hum_in['Very Dry'] = fuzz.trimf(self.hum_in.universe, [0, 0, 30])
@@ -108,6 +109,20 @@ class GreenhouseEnvironment:
         rules.append(ctrl.Rule(T['Very Cold'], Fan['off'])) # Safety rule
         rules.append(ctrl.Rule(T['Hot'] & H['Very Dry'], Mist['high'])) # Safety rule
 
+        # --- GAP FILLING RULES ---
+        # Warm + Dry/Very Dry + Vegetative
+        rules.append(ctrl.Rule(T['Warm'] & H['Dry'] & S['Vegetative'], (Fan['medium'], Mist['high'])))
+        rules.append(ctrl.Rule(T['Warm'] & H['Very Dry'] & S['Vegetative'], (Fan['medium'], Mist['high'])))
+        
+        # Hot + Optimal + Vegetative
+        rules.append(ctrl.Rule(T['Hot'] & H['Optimal'] & S['Vegetative'], (Fan['max'], Mist['medium'])))
+
+        # --- GENERAL SAFETY FALLBACKS ---
+        # Ensure basic response if specific combinations are missed
+        rules.append(ctrl.Rule(T['Hot'], Fan['max']))
+        rules.append(ctrl.Rule(T['Warm'], Fan['medium']))
+        rules.append(ctrl.Rule(H['Very Dry'], Mist['high']))
+
         self.ctrl_system = ctrl.ControlSystem(rules)
         self.simulation = ctrl.ControlSystemSimulation(self.ctrl_system)
 
@@ -135,6 +150,9 @@ class GreenhouseEnvironment:
         
         req = species_reqs.get(plant_type, species_reqs['General'])
         
+        # Update the target temperature for the environment
+        self.target_temp = req['temp']
+        
         print(f"Adapting system for {plant_type}: Target Temp={req['temp']}C, Target Hum={req['hum']}%")
         self.build_control_system(optimal_temp_center=req['temp'], optimal_hum_center=req['hum'])
 
@@ -142,7 +160,9 @@ class GreenhouseEnvironment:
         self.apply_adaptation(species)
 
     def get_state_index(self, error):
-        clamped_error = max(-10, min(10, error))
+        # Map continuous error (-10 to 10) to a discrete index (0 to 19)
+        # Clamping error between -10 and 9.9 to ensure index < 20
+        clamped_error = max(-10, min(9.9, error))
         return int(clamped_error + 10) 
 
     def step(self, external_temp_influence, stage_name='vegetative'):
@@ -183,10 +203,13 @@ class GreenhouseEnvironment:
         final_fan_power = max(0, min(100, base_fan_power + adjustment))
 
         # Physics Simulation
-        cooling_effect = (final_fan_power / 20.0) 
+        cooling_effect = (final_fan_power / 18.0) 
         warming_effect = external_temp_influence
         
-        self.current_temp += (warming_effect - cooling_effect)
+        # Natural heat loss to ambient (20°C) to stabilize physics
+        heat_loss = 0.1 * (self.current_temp - 20.0)
+        
+        self.current_temp += (warming_effect - cooling_effect - heat_loss)
         
         # Simple humidity physics (Fan dries air)
         self.current_hum -= (final_fan_power / 50.0)
@@ -371,7 +394,7 @@ def run_performance_test():
 
             # Sugeno Step (Approximation of physics)
             fan_s = sugeno.compute(temp_s, 50, 5) # 5 = Vegetative
-            cooling = fan_s / 20.0
+            cooling = fan_s / 18.0
             temp_s += (1.0 - cooling)
             sugeno_error_acc += abs(temp_s - target)
 
