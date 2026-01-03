@@ -187,8 +187,10 @@ class GreenhouseEnvironment:
         try:
             self.simulation.compute()
             base_fan_power = self.simulation.output['fan_power']
+            self.current_mist_power = self.simulation.output.get('mist_intensity', 0)
         except:
             base_fan_power = 0
+            self.current_mist_power = 0
 
         # 3. RL ACTION (Evolving the Rule Output)
         if np.random.uniform(0, 1) < self.epsilon:
@@ -356,7 +358,7 @@ class SugenoController:
         if denominator_mist > 0:
             mist_result = numerator_mist / denominator_mist
             
-        return fan_result
+        return fan_result, mist_result
 
 # --- PERFORMANCE TRACKING ---
 def run_performance_test():
@@ -393,7 +395,7 @@ def run_performance_test():
             energy_acc += fan_m
 
             # Sugeno Step (Approximation of physics)
-            fan_s = sugeno.compute(temp_s, 50, 5) # 5 = Vegetative
+            fan_s, _ = sugeno.compute(temp_s, 50, 5) # 5 = Vegetative
             cooling = fan_s / 18.0
             temp_s += (1.0 - cooling)
             sugeno_error_acc += abs(temp_s - target)
